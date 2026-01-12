@@ -11,8 +11,9 @@ st.set_page_config(page_title="Magic English", page_icon="🌈", layout="centere
 st.markdown("""
     <style>
     .stApp { background-color: #FFF9E1; } 
-    .stButton>button { border-radius: 30px; background: #FF4B4B; color: white; font-size: 20px; height: 3.5em; width: 100%; font-weight: bold; border: none; }
-    .star-box { background-color: #FFD700; padding: 15px; border-radius: 20px; text-align: center; font-size: 22px; font-weight: bold; border: 3px solid #FFA000; color: #5D4037; }
+    h1, h2, h3, p, label { color: #333333 !important; }
+    .stButton>button { border-radius: 30px; background: #FF4B4B; color: white !important; font-size: 20px; height: 3.5em; width: 100%; font-weight: bold; border: none; }
+    .star-box { background-color: #FFD700; padding: 15px; border-radius: 20px; text-align: center; font-size: 22px; font-weight: bold; border: 3px solid #FFA000; color: #5D4037 !important; }
     .praise-msg { color: #D81B60; font-size: 28px; font-weight: bold; text-align: center; font-family: 'Comic Sans MS'; }
     </style>
     """, unsafe_allow_html=True)
@@ -94,3 +95,11 @@ if uploaded_file:
             st.rerun()
 else:
     st.warning("Silakan pilih buku PDF!")
+
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; font-size: 14px; color: #333333;">
+    made by BUSA Corp;. idea initiated by "Bhante Chong"; and executed by "rio";<br>
+    for further inquiries, please reach us at "fikrioyapputra@gmail.com";
+</div>
+""", unsafe_allow_html=True)
