@@ -4,7 +4,7 @@ A Streamlit app that helps children learn English by reading PDFs aloud with car
 
 ## Features
 - Upload English PDF books
-- Adjust reading speed
+- Toggle slow reading mode
 - Automatic translation to Indonesian
 - Star collection system with celebrations
 - Mobile-friendly interface
@@ -15,7 +15,7 @@ A Streamlit app that helps children learn English by reading PDFs aloud with car
 
 ## Usage
 - Upload an English PDF
-- Adjust reading speed
+- Check "Baca Pelan-Pelan" for slower reading
 - Click "BACA & TERJEMAHKAN" to hear the English audio followed by Indonesian translation
 - Navigate pages with the buttons
 - Collect stars for each reading!

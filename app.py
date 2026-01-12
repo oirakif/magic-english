@@ -20,7 +20,7 @@ st.markdown("""
 # State Management
 if 'stars' not in st.session_state: st.session_state.stars = 0
 if 'page' not in st.session_state: st.session_state.page = 0
-if 'current_page_audio' not in st.session_state: st.session_state.current_page_audio = (-1, 1.0)
+if 'current_page_audio' not in st.session_state: st.session_state.current_page_audio = (-1, False)
 translator = Translator()
 
 st.title("🦄 My Magic English Buddy")
@@ -47,17 +47,17 @@ if uploaded_file:
     st.subheader("📖 PDF Page")
     st.image(img_bytes, caption=f"Page {st.session_state.page + 1}")
 
-    speed = st.slider("🐢 Kecepatan Suara (Pelan - Cepat) 🐇", 0.5, 1.3, 1.0, 0.1)
+    slow_mode = st.checkbox("🐢 Baca Pelan-Pelan (Slow Mode)", value=False)
 
     st.subheader("📖 English Text")
     st.info(f"Halaman {st.session_state.page + 1}\n\n{text_en}")
 
     # Auto-generate audio if not done for this page
-    if st.session_state.current_page_audio != (st.session_state.page, speed):
+    if st.session_state.current_page_audio != (st.session_state.page, slow_mode):
         with st.spinner("Ssst... Temanmu sedang bersiap..."):
             try:
                 # English Audio (gTTS)
-                tts_en = gTTS(text=text_en, lang='en', slow=(speed < 0.9))
+                tts_en = gTTS(text=text_en, lang='en', slow=slow_mode)
                 fp_en = BytesIO()
                 tts_en.write_to_fp(fp_en)
                 fp_en.seek(0)
@@ -77,7 +77,7 @@ if uploaded_file:
                 st.subheader("🔊 Indonesian Audio")
                 st.audio(fp_id, format="audio/mp3")
                 st.session_state.stars += 1
-                st.session_state.current_page_audio = (st.session_state.page, speed)
+                st.session_state.current_page_audio = (st.session_state.page, slow_mode)
             except Exception as e:
                 st.error(f"Maaf, ada gangguan koneksi: {e}")
 
