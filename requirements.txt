@@ -3,3 +3,4 @@ pypdf
 requests
 googletrans==3.1.0a0
 gTTS
+cryptography

@@ -35,10 +35,10 @@ if st.session_state.stars > 0 and st.session_state.stars % 10 == 0:
 st.sidebar.header("Parents Section")
 API_KEY = st.sidebar.text_input("ElevenLabs API Key:", type="password")
 VOICE_IDS = {
-    "Mimi the Pixie 🧚‍♀️": "ThT5KcBe7VKqWn94uTcl", 
-    "Puff the Hamster 🐹": "21m00Tcm4TlvDq8ikWAM",
-    "Finley the Fox 🦊": "iP95p4xo4khXNr6sY8mc",
-    "Barney the Dino 🦖": "pNInz6obpgDQGcFmaJgB"
+    "Mimi the Pixie 🧚‍♀️": "21m00Tcm4TlvDq8ikWAM",  # Rachel
+    "Puff the Hamster 🐹": "29vD33N1CtxCmqQRPOHJ",   # Drew
+    "Finley the Fox 🦊": "2EiwWnXFnvU5JabPnv8n",    # Clyde
+    "Barney the Dino 🦖": "5QodY9m69DEzg8J7aVT"     # Paul
 }
 
 # --- 4. MAIN APP LOGIC ---
@@ -59,7 +59,7 @@ if uploaded_file and API_KEY:
             # English Audio (ElevenLabs)
             url = f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_IDS[char_choice]}"
             headers = {"xi-api-key": API_KEY, "Content-Type": "application/json"}
-            data = {"text": text_en, "model_id": "eleven_monolingual_v1", "voice_settings": {"speed": speed, "stability":0.5, "similarity_boost":0.75}}
+            data = {"text": text_en, "model_id": "eleven_flash_v2", "voice_settings": {"speed": speed, "stability":0.5, "similarity_boost":0.75}}
             res_en = requests.post(url, json=data, headers=headers)
             
             # Indonesian Translation & Audio (gTTS)
@@ -69,10 +69,15 @@ if uploaded_file and API_KEY:
             fp_id = BytesIO()
             tts_id.write_to_fp(fp_id)
 
-            if res_en.status_code == 200:
-                st.audio(res_en.content, format="audio/mp3", autoplay=True)
+            if res_en.status_code == 200 and res_en.content:
+                st.audio(res_en.content, format="audio/mp3")
                 st.audio(fp_id, format="audio/mp3")
                 st.session_state.stars += 1
+                st.success(f"🇮🇩 {text_id}")
+            else:
+                st.error(f"Gagal membuat audio English: {res_en.status_code} - {res_en.text if hasattr(res_en, 'text') and res_en.text else 'No response'}")
+                # Still try Indonesian audio
+                st.audio(fp_id, format="audio/mp3")
                 st.success(f"🇮🇩 {text_id}")
 
     # Navigation
