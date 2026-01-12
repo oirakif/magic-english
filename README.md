@@ -4,7 +4,6 @@ A Streamlit app that helps children learn English by reading PDFs aloud with car
 
 ## Features
 - Upload English PDF books
-- Choose from cartoon characters (Pixie, Hamster, Fox, Dino) for voice
 - Adjust reading speed
 - Automatic translation to Indonesian
 - Star collection system with celebrations
@@ -16,7 +15,7 @@ A Streamlit app that helps children learn English by reading PDFs aloud with car
 
 ## Usage
 - Upload an English PDF
-- Select a character voice and adjust speed
+- Adjust reading speed
 - Click "BACA & TERJEMAHKAN" to hear the English audio followed by Indonesian translation
 - Navigate pages with the buttons
 - Collect stars for each reading!

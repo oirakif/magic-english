@@ -20,7 +20,7 @@ st.markdown("""
 # State Management
 if 'stars' not in st.session_state: st.session_state.stars = 0
 if 'page' not in st.session_state: st.session_state.page = 0
-if 'current_page_audio' not in st.session_state: st.session_state.current_page_audio = (-1, "", 1.0)
+if 'current_page_audio' not in st.session_state: st.session_state.current_page_audio = (-1, 1.0)
 translator = Translator()
 
 st.title("🦄 My Magic English Buddy")
@@ -31,14 +31,6 @@ st.markdown(f'<div class="star-box">Bintang Saya: {"⭐" * (st.session_state.sta
 if st.session_state.stars > 0 and st.session_state.stars % 10 == 0:
     st.balloons()
     st.markdown('<p class="praise-msg">🎉 Wah, Hebat! Kamu dapat 10 bintang baru! 🎉</p>', unsafe_allow_html=True)
-
-# --- 3. API KEY SETUP ---
-VOICE_ACCENTS = {
-    "Mimi the Pixie 🧚‍♀️ (US)": "com",
-    "Puff the Hamster 🐹 (UK)": "co.uk",
-    "Finley the Fox 🦊 (Australia)": "com.au",
-    "Barney the Dino 🦖 (India)": "co.in"
-}
 
 # --- 4. MAIN APP LOGIC ---
 uploaded_file = st.file_uploader("📂 Buka buku PDF kamu di sini:", type="pdf")
@@ -55,20 +47,17 @@ if uploaded_file:
     st.subheader("📖 PDF Page")
     st.image(img_bytes, caption=f"Page {st.session_state.page + 1}")
 
-    col1, col2 = st.columns(2)
-    with col1: char_choice = st.selectbox("Pilih Teman:", list(VOICE_ACCENTS.keys()))
-    with col2: speed = st.slider("🐢 Pelan - Cepat 🐇", 0.5, 1.3, 1.0, 0.1)
+    speed = st.slider("🐢 Kecepatan Suara (Pelan - Cepat) 🐇", 0.5, 1.3, 1.0, 0.1)
 
     st.subheader("📖 English Text")
     st.info(f"Halaman {st.session_state.page + 1}\n\n{text_en}")
 
     # Auto-generate audio if not done for this page
-    if st.session_state.current_page_audio != (st.session_state.page, char_choice, speed):
+    if st.session_state.current_page_audio != (st.session_state.page, speed):
         with st.spinner("Ssst... Temanmu sedang bersiap..."):
             try:
                 # English Audio (gTTS)
-                tld = VOICE_ACCENTS[char_choice]
-                tts_en = gTTS(text=text_en, lang='en', tld=tld, slow=(speed < 0.9))
+                tts_en = gTTS(text=text_en, lang='en', slow=(speed < 0.9))
                 fp_en = BytesIO()
                 tts_en.write_to_fp(fp_en)
                 fp_en.seek(0)
@@ -88,7 +77,7 @@ if uploaded_file:
                 st.subheader("🔊 Indonesian Audio")
                 st.audio(fp_id, format="audio/mp3")
                 st.session_state.stars += 1
-                st.session_state.current_page_audio = (st.session_state.page, char_choice, speed)
+                st.session_state.current_page_audio = (st.session_state.page, speed)
             except Exception as e:
                 st.error(f"Maaf, ada gangguan koneksi: {e}")
 
