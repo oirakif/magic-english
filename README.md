@@ -12,11 +12,9 @@ A Streamlit app that helps children learn English by reading PDFs aloud with car
 
 ## Setup
 1. Install dependencies: `pip install -r requirements.txt`
-2. Get an ElevenLabs API key from [ElevenLabs](https://elevenlabs.io/)
-3. Run the app: `streamlit run app.py`
+2. Run the app: `streamlit run app.py`
 
 ## Usage
-- Enter your ElevenLabs API Key in the sidebar
 - Upload an English PDF
 - Select a character voice and adjust speed
 - Click "BACA & TERJEMAHKAN" to hear the English audio followed by Indonesian translation
