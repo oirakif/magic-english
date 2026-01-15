@@ -1,0 +1,105 @@
+import streamlit as st
+import pypdf
+from googletrans import Translator
+from gtts import gTTS
+from io import BytesIO
+import fitz
+
+# --- 1. APP CONFIG & STYLE ---
+st.set_page_config(page_title="Magic English", page_icon="🌈", layout="centered")
+
+st.markdown("""
+    <style>
+    .stApp { background-color: #FFF9E1; } 
+    h1, h2, h3, p, label { color: #333333 !important; }
+    .stButton>button { border-radius: 30px; background: #FF4B4B; color: white !important; font-size: 20px; height: 3.5em; width: 100%; font-weight: bold; border: none; }
+    .star-box { background-color: #FFD700; padding: 15px; border-radius: 20px; text-align: center; font-size: 22px; font-weight: bold; border: 3px solid #FFA000; color: #5D4037 !important; }
+    .praise-msg { color: #D81B60; font-size: 28px; font-weight: bold; text-align: center; font-family: 'Comic Sans MS'; }
+    </style>
+    """, unsafe_allow_html=True)
+
+# State Management
+if 'stars' not in st.session_state: st.session_state.stars = 0
+if 'page' not in st.session_state: st.session_state.page = 0
+if 'current_page_audio' not in st.session_state: st.session_state.current_page_audio = (-1, False)
+translator = Translator()
+
+st.title("🦄 My Magic English Buddy")
+
+# --- 2. STAR COUNTER ---
+st.markdown(f'<div class="star-box">Bintang Saya: {"⭐" * (st.session_state.stars % 5 + 1)} ({st.session_state.stars})</div>', unsafe_allow_html=True)
+
+if st.session_state.stars > 0 and st.session_state.stars % 10 == 0:
+    st.balloons()
+    st.markdown('<p class="praise-msg">🎉 Wah, Hebat! Kamu dapat 10 bintang baru! 🎉</p>', unsafe_allow_html=True)
+
+# --- 4. MAIN APP LOGIC ---
+uploaded_file = st.file_uploader("📂 Buka buku PDF kamu di sini:", type="pdf")
+
+if uploaded_file:
+    reader = pypdf.PdfReader(uploaded_file)
+    text_en = reader.pages[st.session_state.page].extract_text()
+
+    # Display PDF page image
+    doc = fitz.open(stream=uploaded_file.getvalue(), filetype="pdf")
+    page_img = doc[st.session_state.page]
+    pix = page_img.get_pixmap()
+    img_bytes = pix.tobytes("png")
+    st.subheader("📖 PDF Page")
+    st.image(img_bytes, caption=f"Page {st.session_state.page + 1}")
+
+    slow_mode = st.checkbox("🐢 Baca Pelan-Pelan (Slow Mode)", value=False)
+
+    st.subheader("📖 English Text")
+    st.info(f"Halaman {st.session_state.page + 1}\n\n{text_en}")
+
+    # Auto-generate audio if not done for this page
+    if st.session_state.current_page_audio != (st.session_state.page, slow_mode):
+        with st.spinner("Ssst... Temanmu sedang bersiap..."):
+            try:
+                # English Audio (gTTS)
+                tts_en = gTTS(text=text_en, lang='en', slow=slow_mode)
+                fp_en = BytesIO()
+                tts_en.write_to_fp(fp_en)
+                fp_en.seek(0)
+
+                # Indonesian Translation & Audio (gTTS)
+                translated = translator.translate(text_en, src='en', dest='id')
+                text_id = translated.text
+                tts_id = gTTS(text=text_id, lang='id')
+                fp_id = BytesIO()
+                tts_id.write_to_fp(fp_id)
+                fp_id.seek(0)
+
+                st.subheader("🔊 English Audio")
+                st.audio(fp_en, format="audio/mp3")
+                st.subheader("🇮🇩 Terjemahan Bahasa Indonesia")
+                st.success(text_id)
+                st.subheader("🔊 Indonesian Audio")
+                st.audio(fp_id, format="audio/mp3")
+                st.session_state.stars += 1
+                st.session_state.current_page_audio = (st.session_state.page, slow_mode)
+            except Exception as e:
+                st.error(f"Maaf, ada gangguan koneksi: {e}")
+
+    # Navigation
+    st.write("---")
+    n1, n2 = st.columns(2)
+    with n1:
+        if st.button("⬅️ Mundur") and st.session_state.page > 0:
+            st.session_state.page -= 1
+            st.rerun()
+    with n2:
+        if st.button("Maju ➡️") and st.session_state.page < len(reader.pages)-1:
+            st.session_state.page += 1
+            st.rerun()
+else:
+    st.warning("Silakan pilih buku PDF!")
+
+st.markdown("---")
+st.markdown("""
+<div style="text-align: center; font-size: 14px; color: #333333;">
+    made by BUSA Corp;. idea initiated by "Bhante Chong"; and executed by "rio"; <br>
+    for further inquiries, please reach us at "fikrioyapputra@gmail.com";
+</div>
+""", unsafe_allow_html=True)

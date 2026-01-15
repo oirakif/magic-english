@@ -1,105 +1,160 @@
 import streamlit as st
 import pypdf
-from googletrans import Translator
+import re
+import base64
+try:
+    from googletrans import Translator
+    translator = Translator()
+    translator_available = True
+except Exception:
+    # googletrans (and its dependency httpx) may not work on newer Python versions
+    # (e.g. Python 3.13) because of removed stdlib modules like `cgi`.
+    # Fall back to disabling translation features while keeping the app runnable.
+    Translator = None
+    translator = None
+    translator_available = False
+import warnings
+# Silence Streamlit's deprecation message about use_column_width which we already replaced
+warnings.filterwarnings("ignore", message=".*use_column_width.*")
 from gtts import gTTS
 from io import BytesIO
-import fitz
 
-# --- 1. APP CONFIG & STYLE ---
-st.set_page_config(page_title="Magic English", page_icon="🌈", layout="centered")
+# Try to import PyMuPDF (fitz) to render PDF pages as images when available.
+try:
+    import fitz
+    fitz_available = True
+except Exception:
+    fitz = None
+    fitz_available = False
+
+
+# --- CONFIG & INTERFACE ---
+st.set_page_config(page_title="Buku Ajaib Inggris", page_icon="🌈")
 
 st.markdown("""
     <style>
-    .stApp { background-color: #FFF9E1; } 
-    h1, h2, h3, p, label { color: #333333 !important; }
-    .stButton>button { border-radius: 30px; background: #FF4B4B; color: white !important; font-size: 20px; height: 3.5em; width: 100%; font-weight: bold; border: none; }
-    .star-box { background-color: #FFD700; padding: 15px; border-radius: 20px; text-align: center; font-size: 22px; font-weight: bold; border: 3px solid #FFA000; color: #5D4037 !important; }
-    .praise-msg { color: #D81B60; font-size: 28px; font-weight: bold; text-align: center; font-family: 'Comic Sans MS'; }
+    .stApp { background: #FFF9E1; } 
+    .sentence-card { 
+        background: white; padding: 15px; border-radius: 15px; 
+        border-left: 10px solid #FF4B4B; margin-bottom: 10px; 
+        font-size: 20px; font-weight: bold; color: #333;
+    }
+    .stButton>button { border-radius: 25px; height: 3em; font-weight: bold; }
+    .star-counter { font-size: 24px; text-align: center; color: #E64A19; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-# State Management
 if 'stars' not in st.session_state: st.session_state.stars = 0
 if 'page' not in st.session_state: st.session_state.page = 0
-if 'current_page_audio' not in st.session_state: st.session_state.current_page_audio = (-1, False)
-translator = Translator()
 
-st.title("🦄 My Magic English Buddy")
+st.title("🌈 Buku Ajaib Sahabat Pintar")
+st.markdown(f'<p class="star-counter">⭐ Bintang Saya: {st.session_state.stars}</p>', unsafe_allow_html=True)
 
-# --- 2. STAR COUNTER ---
-st.markdown(f'<div class="star-box">Bintang Saya: {"⭐" * (st.session_state.stars % 5 + 1)} ({st.session_state.stars})</div>', unsafe_allow_html=True)
+if not translator_available:
+    st.warning("Terjemahan dinonaktifkan: modul `googletrans` tidak tersedia on this Python runtime.\n" \
+               "To enable translation, use Python 3.11 or install a compatible translation library.")
 
-if st.session_state.stars > 0 and st.session_state.stars % 10 == 0:
-    st.balloons()
-    st.markdown('<p class="praise-msg">🎉 Wah, Hebat! Kamu dapat 10 bintang baru! 🎉</p>', unsafe_allow_html=True)
+# --- SIDEBAR CONTROLS ---
+st.sidebar.header("🎡 Pengaturan Suara")
+character = st.sidebar.selectbox("Pilih Teman Suara:", 
+                                ["Guru (Normal) 👩‍🏫", "Tupai (Squeaky) 🐿️", "Beruang (Deep) 🐻", "Robot (Echo) 🤖"])
+speed_val = st.sidebar.select_slider("Kecepatan Membaca:", options=[0.8, 1.0, 1.2], value=1.0)
 
-# --- 4. MAIN APP LOGIC ---
-uploaded_file = st.file_uploader("📂 Buka buku PDF kamu di sini:", type="pdf")
+# --- MAGIC VOICE ENGINE ---
+def transform_audio(audio_bytes, char_type):
+    # Import pydub lazily. If pydub or its dependencies are not available on this
+    # Python runtime, raise an error so caller can fallback to playing raw audio.
+    try:
+        from pydub import AudioSegment
+    except Exception as e:
+        raise RuntimeError("pydub not available: %s" % e)
+
+    sound = AudioSegment.from_file(audio_bytes, format="mp3")
+    if "Tupai" in char_type:
+        new_rate = int(sound.frame_rate * 1.3)
+        sound = sound._spawn(sound.raw_data, overrides={'frame_rate': new_rate}).set_frame_rate(44100)
+    elif "Beruang" in char_type:
+        new_rate = int(sound.frame_rate * 0.8)
+        sound = sound._spawn(sound.raw_data, overrides={'frame_rate': new_rate}).set_frame_rate(44100)
+    return sound
+
+# --- PDF & CONTENT ---
+uploaded_file = st.file_uploader("📂 Buka Buku PDF Kamu:", type="pdf")
 
 if uploaded_file:
     reader = pypdf.PdfReader(uploaded_file)
-    text_en = reader.pages[st.session_state.page].extract_text()
+    total_pages = len(reader.pages)
+    
+    # Visual PDF Page Display
+    if fitz_available:
+        try:
+            # Render the selected page as an image for reliable in-browser preview.
+            doc = fitz.open(stream=uploaded_file.getvalue(), filetype="pdf")
+            page_img = doc[st.session_state.page]
+            pix = page_img.get_pixmap(matrix=fitz.Matrix(2, 2))
+            img_bytes = pix.tobytes("png")
+            # use_column_width is deprecated; specify a pixel width instead for now.
+            st.image(img_bytes, caption=f"Page {st.session_state.page + 1}", width=700)
+        except Exception:
+            # Fall back to data-URI iframe if rendering fails
+            base64_pdf = base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
+            pdf_view = f'<iframe src="data:application/pdf;base64,{base64_pdf}#page={st.session_state.page + 1}" width="100%" height="400" style="border-radius:15px; border:3px solid #FFD700;"></iframe>'
+            st.markdown(pdf_view, unsafe_allow_html=True)
+    else:
+        # If PyMuPDF not available, use an embedded PDF iframe (may be blocked on some browsers).
+        base64_pdf = base64.b64encode(uploaded_file.getvalue()).decode('utf-8')
+        pdf_view = f'<iframe src="data:application/pdf;base64,{base64_pdf}#page={st.session_state.page + 1}" width="100%" height="400" style="border-radius:15px; border:3px solid #FFD700;"></iframe>'
+        st.markdown(pdf_view, unsafe_allow_html=True)
 
-    # Display PDF page image
-    doc = fitz.open(stream=uploaded_file.getvalue(), filetype="pdf")
-    page_img = doc[st.session_state.page]
-    pix = page_img.get_pixmap()
-    img_bytes = pix.tobytes("png")
-    st.subheader("📖 PDF Page")
-    st.image(img_bytes, caption=f"Page {st.session_state.page + 1}")
+    # Text Splitting Logic
+    raw_text = reader.pages[st.session_state.page].extract_text() or ""
+    sentences = re.split(r'(?<=[.!?]) +', raw_text.replace('\n', ' ')) if raw_text else []
 
-    slow_mode = st.checkbox("🐢 Baca Pelan-Pelan (Slow Mode)", value=False)
+    st.write(f"### 📖 Halaman {st.session_state.page + 1}")
 
-    st.subheader("📖 English Text")
-    st.info(f"Halaman {st.session_state.page + 1}\n\n{text_en}")
+    for i, line in enumerate(sentences):
+        if line.strip():
+            with st.container():
+                st.markdown(f'<div class="sentence-card">{line}</div>', unsafe_allow_html=True)
+                if st.button(f"🔊 Baca Kalimat {i+1}", key=f"s_{i}"):
+                    # 1. English Voice (generate TTS bytes)
+                    tts_en = gTTS(text=line, lang='en', slow=(speed_val < 1.0))
+                    fp_en = BytesIO()
+                    tts_en.write_to_fp(fp_en)
+                    fp_en.seek(0)
 
-    # Auto-generate audio if not done for this page
-    if st.session_state.current_page_audio != (st.session_state.page, slow_mode):
-        with st.spinner("Ssst... Temanmu sedang bersiap..."):
-            try:
-                # English Audio (gTTS)
-                tts_en = gTTS(text=text_en, lang='en', slow=slow_mode)
-                fp_en = BytesIO()
-                tts_en.write_to_fp(fp_en)
-                fp_en.seek(0)
+                    # Try applying audio transform; if anything fails, play original bytes.
+                    try:
+                        final_audio = transform_audio(fp_en, character)
+                        out_fp = BytesIO()
+                        final_audio.export(out_fp, format="mp3")
+                        out_fp.seek(0)
+                        st.audio(out_fp, format="audio/mp3", autoplay=True)
+                    except Exception:
+                        fp_en.seek(0)
+                        st.audio(fp_en, format="audio/mp3", autoplay=True)
+                        st.info("Efek suara tidak tersedia pada runtime ini; memutar audio asli.")
 
-                # Indonesian Translation & Audio (gTTS)
-                translated = translator.translate(text_en, src='en', dest='id')
-                text_id = translated.text
-                tts_id = gTTS(text=text_id, lang='id')
-                fp_id = BytesIO()
-                tts_id.write_to_fp(fp_id)
-                fp_id.seek(0)
+                    # 2. Translation (if available)
+                    if translator_available and translator is not None:
+                        try:
+                            translated = translator.translate(line, src='en', dest='id').text
+                            st.success(f"🇮🇩 Artinya: {translated}")
+                        except Exception:
+                            st.info("Terjemahan saat ini gagal. Coba lagi nanti.")
+                    else:
+                        st.info("Terjemahan tidak tersedia pada runtime ini.")
+                    st.session_state.stars += 1
+                    if st.session_state.stars % 10 == 0: st.balloons()
 
-                st.subheader("🔊 English Audio")
-                st.audio(fp_en, format="audio/mp3")
-                st.subheader("🇮🇩 Terjemahan Bahasa Indonesia")
-                st.success(text_id)
-                st.subheader("🔊 Indonesian Audio")
-                st.audio(fp_id, format="audio/mp3")
-                st.session_state.stars += 1
-                st.session_state.current_page_audio = (st.session_state.page, slow_mode)
-            except Exception as e:
-                st.error(f"Maaf, ada gangguan koneksi: {e}")
-
-    # Navigation
+    # Nav
     st.write("---")
-    n1, n2 = st.columns(2)
-    with n1:
+    c1, c2 = st.columns(2)
+    with c1:
         if st.button("⬅️ Mundur") and st.session_state.page > 0:
             st.session_state.page -= 1
             st.rerun()
-    with n2:
-        if st.button("Maju ➡️") and st.session_state.page < len(reader.pages)-1:
+    with c2:
+        if st.button("Maju ➡️") and st.session_state.page < total_pages - 1:
             st.session_state.page += 1
             st.rerun()
-else:
-    st.warning("Silakan pilih buku PDF!")
-
-st.markdown("---")
-st.markdown("""
-<div style="text-align: center; font-size: 14px; color: #333333;">
-    made by BUSA Corp;. idea initiated by "Bhante Chong"; and executed by "rio";<br>
-    for further inquiries, please reach us at "fikrioyapputra@gmail.com";
-</div>
-""", unsafe_allow_html=True)
