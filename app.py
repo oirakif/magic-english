@@ -188,8 +188,22 @@ if uploaded_file:
                         # Left: mascot emoji avatar; Right: encouraging message in a styled box
                         mcol, tcol = st.columns([1, 6])
                         with mcol:
-                            # Use a friendly giraffe emoji as the mascot (fits the bundled book)
-                            st.markdown('<div style="font-size:48px; text-align:center;">🦒</div>', unsafe_allow_html=True)
+                            # Try to load the mascot image from assets/mascots/mascot.avif and embed
+                            try:
+                                mascot_path = Path(__file__).parent / "assets" / "mascots" / "mascot.avif"
+                                if mascot_path.exists():
+                                    b = base64.b64encode(mascot_path.read_bytes()).decode('utf-8')
+                                    # Use an embedded data URI so Streamlit reliably shows the image.
+                                    # Style: transparent background, rounded, fixed width.
+                                    st.markdown(
+                                        f'<img src="data:image/avif;base64,{b}" style="width:96px;background:transparent;border-radius:12px;display:block;margin:0 auto;">',
+                                        unsafe_allow_html=True,
+                                    )
+                                else:
+                                    st.markdown('<div style="font-size:48px; text-align:center;">🦒</div>', unsafe_allow_html=True)
+                            except Exception:
+                                # Fallback to emoji if anything goes wrong
+                                st.markdown('<div style="font-size:48px; text-align:center;">🦒</div>', unsafe_allow_html=True)
                         with tcol:
                             st.markdown(
                                 f'''<div style="background:#FFFBE6;padding:12px;border-radius:12px;border:2px solid #FFD966; font-size:18px;">
