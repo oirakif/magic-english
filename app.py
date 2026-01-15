@@ -2,6 +2,7 @@ import streamlit as st
 import pypdf
 import re
 import base64
+from pathlib import Path
 try:
     from googletrans import Translator
     translator = Translator()
@@ -46,6 +47,10 @@ st.markdown("""
 
 if 'stars' not in st.session_state: st.session_state.stars = 0
 if 'page' not in st.session_state: st.session_state.page = 0
+# Track which sentences have been played per page (map page_index -> list of sentence indices)
+if 'played_sentences' not in st.session_state: st.session_state.played_sentences = {}
+# Keep list of pages already completed so we congratulate only once per page
+if 'completed_pages' not in st.session_state: st.session_state.completed_pages = []
 
 st.title("🌈 Buku Ajaib Sahabat Pintar")
 st.markdown(f'<p class="star-counter">⭐ Bintang Saya: {st.session_state.stars}</p>', unsafe_allow_html=True)
@@ -80,6 +85,22 @@ def transform_audio(audio_bytes, char_type):
 
 # --- PDF & CONTENT ---
 uploaded_file = st.file_uploader("📂 Buka Buku PDF Kamu:", type="pdf")
+
+# If the user hasn't uploaded a PDF, try to preload a bundled sample so the app
+# starts with content ready to read. The sample filename is expected to live in
+# the app directory.
+if not uploaded_file:
+    try:
+        default_pdf = Path(__file__).parent / "002-GINGER-THE-GIRAFFE-Free-Childrens-Book-By-Monkey-Pen.pdf"
+        if default_pdf.exists():
+            data = default_pdf.read_bytes()
+            uploaded_file = BytesIO(data)
+            # attach a name attribute so code that expects an uploaded file's name
+            # can still inspect it if needed
+            uploaded_file.name = default_pdf.name
+            st.info(f"Buku contoh dimuat: {default_pdf.name}")
+    except Exception as e:
+        st.warning(f"Gagal memuat buku contoh: {e}")
 
 if uploaded_file:
     reader = pypdf.PdfReader(uploaded_file)
@@ -144,8 +165,39 @@ if uploaded_file:
                             st.info("Terjemahan saat ini gagal. Coba lagi nanti.")
                     else:
                         st.info("Terjemahan tidak tersedia pada runtime ini.")
+                    # Reward for playing this sentence
                     st.session_state.stars += 1
-                    if st.session_state.stars % 10 == 0: st.balloons()
+                    if st.session_state.stars % 10 == 0:
+                        st.balloons()
+
+                    # Mark this sentence as played for the current page
+                    page_idx = st.session_state.page
+                    page_key = str(page_idx)
+                    played = set(st.session_state.played_sentences.get(page_key, []))
+                    played.add(i)
+                    st.session_state.played_sentences[page_key] = list(played)
+
+                    # If all non-empty sentences on this page have been played, congratulate once
+                    total_sentences = len([s for s in sentences if s.strip()])
+                    if total_sentences > 0 and len(played) >= total_sentences and page_idx not in st.session_state.completed_pages:
+                        st.session_state.completed_pages.append(page_idx)
+                        # Small bonus
+                        st.session_state.stars += 3
+
+                        # Mascot + written encouragement (no audio)
+                        # Left: mascot emoji avatar; Right: encouraging message in a styled box
+                        mcol, tcol = st.columns([1, 6])
+                        with mcol:
+                            # Use a friendly giraffe emoji as the mascot (fits the bundled book)
+                            st.markdown('<div style="font-size:48px; text-align:center;">🦒</div>', unsafe_allow_html=True)
+                        with tcol:
+                            st.markdown(
+                                f'''<div style="background:#FFFBE6;padding:12px;border-radius:12px;border:2px solid #FFD966; font-size:18px;">
+                                    <strong>🎉 Hebat!</strong> Kamu sudah mendengarkan semua kalimat di halaman {page_idx + 1}. Teruskan ya!
+                                </div>''',
+                                unsafe_allow_html=True
+                            )
+                        st.balloons()
 
     # Nav
     st.write("---")
