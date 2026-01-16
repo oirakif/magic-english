@@ -133,12 +133,65 @@ def transform_audio(audio_bytes, char_type):
         raise RuntimeError("pydub not available: %s" % e)
 
     sound = AudioSegment.from_file(audio_bytes, format="mp3")
+    # Squirrel: faster, Bear: slower (existing behavior)
     if "Tupai" in char_type:
         new_rate = int(sound.frame_rate * 1.3)
         sound = sound._spawn(sound.raw_data, overrides={'frame_rate': new_rate}).set_frame_rate(44100)
     elif "Beruang" in char_type:
         new_rate = int(sound.frame_rate * 0.8)
         sound = sound._spawn(sound.raw_data, overrides={'frame_rate': new_rate}).set_frame_rate(44100)
+    elif "Robot" in char_type or "robot" in char_type or "Robot (Echo)" in char_type:
+        # Apply a child-friendly robot effect using ring modulation (LFO).
+        try:
+            import numpy as np
+
+            sample_width = sound.sample_width
+            channels = sound.channels
+            frame_rate = sound.frame_rate
+
+            # Only handle 16-bit PCM reliably here; otherwise fall back
+            if sample_width != 2:
+                raise RuntimeError("unsupported sample width for robot effect")
+
+            # Convert raw data to numpy array
+            arr = np.frombuffer(sound.raw_data, dtype=np.int16)
+            if channels == 2:
+                arr = arr.reshape((-1, 2))
+
+            # Normalize to float32 in range [-1, 1]
+            arr_f = arr.astype(np.float32) / 32768.0
+            n_samples = arr_f.shape[0]
+
+            # LFO parameters tuned for child-friendly metallic timbre
+            lfo_freq = 40.0  # Hz
+            depth = 0.6      # modulation depth (0..1)
+
+            t = np.arange(n_samples) / float(frame_rate)
+            lfo = (1.0 - depth) + depth * np.sin(2.0 * np.pi * lfo_freq * t)
+
+            # If stereo, broadcast LFO across channels
+            if channels == 2:
+                lfo = lfo.reshape((-1, 1))
+
+            modulated = arr_f * lfo
+
+            # Convert back to int16
+            mod_i = np.clip(modulated * 32767.0, -32768, 32767).astype(np.int16)
+            raw_bytes = mod_i.tobytes()
+
+            robot_seg = AudioSegment(data=raw_bytes, sample_width=2, frame_rate=frame_rate, channels=channels)
+            # Keep consistent output rate
+            return robot_seg.set_frame_rate(44100)
+        except Exception:
+            # Graceful fallback if numpy isn't available or something fails:
+            # create a simple doubled/overlapped track with slight detune to sound "robotic".
+            try:
+                overlay = sound._spawn(sound.raw_data, overrides={'frame_rate': int(sound.frame_rate * 0.98)}).set_frame_rate(44100) - 6
+                out = sound.overlay(overlay, position=40)
+                return out
+            except Exception:
+                return sound
+
     return sound
 
 
