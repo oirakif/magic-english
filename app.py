@@ -76,17 +76,8 @@ def safe_rerun():
         # partially-updated state.
         st.stop()
 
-# --- SIMPLE AUTHENTICATION (invite code) ---
-if not st.session_state.authenticated:
-    with st.sidebar:
-        st.header("🔒 Akses Aman")
-        code = st.text_input("Masukkan Kode Akses (dari guru/organisasi):", type="password")
-        if st.button("Masuk"):
-            if code == "SahabatPintar2026":
-                st.session_state.authenticated = True
-                safe_rerun()
-            else:
-                st.error("Kode tidak valid. Hubungi guru/organisasi untuk mendapatkan kode akses.")
+# --- NOTE ---
+# The access-code UI is shown after the user accepts Terms of Use (below).
 
 # --- TERMS OF USE ---
 if not st.session_state.accepted_terms:
@@ -98,10 +89,17 @@ if not st.session_state.accepted_terms:
         safe_rerun()
     st.stop()
 
-# If the user isn't authenticated yet, show a small hint and stop further rendering until they login.
+# --- SIMPLE AUTHENTICATION (invite code) shown AFTER Terms acceptance ---
 if not st.session_state.authenticated:
-    st.title("🔒 Akses Diperlukan")
-    st.info("Masuk dengan kode akses di sidebar untuk melanjutkan.")
+    st.markdown("### 🔒 Akses Aman")
+    st.info("Masukkan kode akses yang diberikan oleh guru atau organisasi untuk melanjutkan.")
+    code = st.text_input("Masukkan Kode Akses (dari guru/organisasi):", type="password", key="access_code")
+    if st.button("Masuk"):
+        if code == "SahabatPintar2026":
+            st.session_state.authenticated = True
+            safe_rerun()
+        else:
+            st.error("Kode tidak valid. Hubungi guru/organisasi untuk mendapatkan kode akses.")
     st.stop()
 
 st.title("🌈 Buku Ajaib Sahabat Pintar")
@@ -111,11 +109,19 @@ if not translator_available:
     st.warning("Terjemahan dinonaktifkan: modul `googletrans` tidak tersedia on this Python runtime.\n" \
                "To enable translation, use Python 3.11 or install a compatible translation library.")
 
-# --- SIDEBAR CONTROLS ---
-st.sidebar.header("🎡 Pengaturan Suara")
-character = st.sidebar.selectbox("Pilih Teman Suara:", 
-                                ["Guru (Normal) 👩‍🏫", "Tupai (Squeaky) 🐿️", "Beruang (Deep) 🐻", "Robot (Echo) 🤖"])
-speed_val = st.sidebar.select_slider("Kecepatan Membaca:", options=[0.8, 1.0, 1.2], value=1.0)
+# --- PERSISTENT TOP CONTROLS (mobile-friendly) ---
+# Anchor for voice controls so the floating button can jump to it
+st.markdown("<div id='voice-controls'></div>", unsafe_allow_html=True)
+st.markdown("### 🎡 Pengaturan Suara")
+col_voice, col_speed = st.columns([3, 2])
+with col_voice:
+    character = st.selectbox("Pilih Teman Suara:",
+                             ["Guru (Normal) 👩‍🏫", "Tupai (Squeaky) 🐿️", "Beruang (Deep) 🐻", "Robot (Echo) 🤖"],
+                             key="character")
+with col_speed:
+    speed_val = st.select_slider("Kecepatan:", options=[0.8, 1.0, 1.2], value=1.0, key="speed_val")
+
+# Floating quick-access button removed — voice controls are persistent on the page.
 
 # --- MAGIC VOICE ENGINE ---
 def transform_audio(audio_bytes, char_type):
@@ -226,25 +232,15 @@ if uploaded_file:
                     if st.session_state.usage_count >= USAGE_LIMIT:
                         st.error("⚠️ Batas penggunaan tercapai untuk sesi ini. Silakan coba lagi nanti atau hubungi admin.")
                         st.stop()
-                    # 1. English Voice (generate TTS bytes)
-                    tts_en = gTTS(text=line, lang='en', slow=(speed_val < 1.0))
+                    # 1. English Voice (generate TTS bytes) and Indonesian audio
+                    #    played automatically after English.
+                    tts_en = gTTS(text=safe_line, lang='en', slow=(speed_val < 1.0))
                     fp_en = BytesIO()
                     tts_en.write_to_fp(fp_en)
                     fp_en.seek(0)
 
-                    # Try applying audio transform; if anything fails, play original bytes.
-                    try:
-                        final_audio = transform_audio(fp_en, character)
-                        out_fp = BytesIO()
-                        final_audio.export(out_fp, format="mp3")
-                        out_fp.seek(0)
-                        st.audio(out_fp, format="audio/mp3", autoplay=True)
-                    except Exception:
-                        fp_en.seek(0)
-                        st.audio(fp_en, format="audio/mp3", autoplay=True)
-                        st.info("Efek suara tidak tersedia pada runtime ini; memutar audio asli.")
-
-                    # 2. Translation (if available)
+                    # 2. Get Indonesian translation (if available) and prepare TTS
+                    translated = None
                     if translator_available and translator is not None:
                         try:
                             translated = translator.translate(safe_line, src='en', dest='id').text
@@ -253,12 +249,58 @@ if uploaded_file:
                             st.info("Terjemahan saat ini gagal. Coba lagi nanti.")
                     else:
                         st.info("Terjemahan tidak tersedia pada runtime ini.")
-                    # Reward for playing this sentence
+
+                    fp_id = None
+                    if translated:
+                        try:
+                            tts_id = gTTS(text=translated, lang='id', slow=(speed_val < 1.0))
+                            fp_id = BytesIO()
+                            tts_id.write_to_fp(fp_id)
+                            fp_id.seek(0)
+                        except Exception:
+                            fp_id = None
+
+                    # Try to combine audio segments (apply character transform to English)
+                    # so one player plays EN then ID. If pydub isn't available, fall back
+                    # to playing two audio elements sequentially.
+                    try:
+                        from pydub import AudioSegment
+                        # Transform English audio according to character
+                        try:
+                            en_seg = transform_audio(fp_en, character)
+                        except Exception:
+                            fp_en.seek(0)
+                            en_seg = AudioSegment.from_file(fp_en, format="mp3")
+
+                        if fp_id:
+                            fp_id.seek(0)
+                            id_seg = AudioSegment.from_file(fp_id, format="mp3")
+                            combined = en_seg + AudioSegment.silent(duration=300) + id_seg
+                        else:
+                            combined = en_seg
+
+                        out_fp = BytesIO()
+                        combined.export(out_fp, format="mp3")
+                        out_fp.seek(0)
+                        st.audio(out_fp, format="audio/mp3", autoplay=True)
+                    except Exception:
+                        # Fallback: play separate audio players; user click should
+                        # permit autoplay in most browsers since the click initiated it.
+                        try:
+                            fp_en.seek(0)
+                            st.audio(fp_en, format="audio/mp3", autoplay=True)
+                        except Exception:
+                            pass
+                        if fp_id:
+                            try:
+                                fp_id.seek(0)
+                                st.audio(fp_id, format="audio/mp3", autoplay=True)
+                            except Exception:
+                                pass
+
+                    # Reward for playing this sentence and usage counting
                     st.session_state.stars += 1
-                    # Count this usage
                     st.session_state.usage_count += 1
-                    if st.session_state.stars % 10 == 0:
-                        st.balloons()
 
                     # Mark this sentence as played for the current page
                     page_idx = st.session_state.page
@@ -273,7 +315,6 @@ if uploaded_file:
                         st.session_state.completed_pages.append(page_idx)
                         # Small bonus
                         st.session_state.stars += 3
-
                         # Mascot + written encouragement (no audio)
                         # Left: mascot emoji avatar; Right: encouraging message in a styled box
                         mcol, tcol = st.columns([1, 6])
@@ -301,7 +342,7 @@ if uploaded_file:
                                 </div>''',
                                 unsafe_allow_html=True
                             )
-                        st.balloons()
+                        # celebration handled via the congratulation banner above
 
     # Nav
     st.write("---")
