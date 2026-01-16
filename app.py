@@ -45,12 +45,64 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# Session state defaults
 if 'stars' not in st.session_state: st.session_state.stars = 0
 if 'page' not in st.session_state: st.session_state.page = 0
 # Track which sentences have been played per page (map page_index -> list of sentence indices)
 if 'played_sentences' not in st.session_state: st.session_state.played_sentences = {}
 # Keep list of pages already completed so we congratulate only once per page
 if 'completed_pages' not in st.session_state: st.session_state.completed_pages = []
+# Simple usage counter (rate limiting) per session
+if 'usage_count' not in st.session_state: st.session_state.usage_count = 0
+# Terms and simple invite-code authentication
+if 'accepted_terms' not in st.session_state: st.session_state.accepted_terms = False
+if 'authenticated' not in st.session_state: st.session_state.authenticated = False
+
+# Compatibility helper for rerunning the script across Streamlit versions
+def safe_rerun():
+    """Try to rerun the Streamlit script. If the runtime doesn't expose the
+    usual rerun helpers, fall back to st.stop() which ends execution and
+    waits for the next user interaction.
+    """
+    try:
+        if hasattr(st, "experimental_rerun"):
+            st.experimental_rerun()
+        elif hasattr(st, "rerun"):
+            st.rerun()
+        else:
+            st.stop()
+    except Exception:
+        # Best-effort fallback: stop execution so UI doesn't continue in a
+        # partially-updated state.
+        st.stop()
+
+# --- SIMPLE AUTHENTICATION (invite code) ---
+if not st.session_state.authenticated:
+    with st.sidebar:
+        st.header("🔒 Akses Aman")
+        code = st.text_input("Masukkan Kode Akses (dari guru/organisasi):", type="password")
+        if st.button("Masuk"):
+            if code == "SahabatPintar2026":
+                st.session_state.authenticated = True
+                safe_rerun()
+            else:
+                st.error("Kode tidak valid. Hubungi guru/organisasi untuk mendapatkan kode akses.")
+
+# --- TERMS OF USE ---
+if not st.session_state.accepted_terms:
+    st.title("🌈 Buku Ajaib Sahabat Pintar")
+    st.markdown(f'<p class="star-counter">⭐ Bintang Saya: {st.session_state.stars}</p>', unsafe_allow_html=True)
+    st.warning("⚠️ Aplikasi ini hanya untuk penggunaan pendidikan anak-anak. Penggunaan komersial atau penyalahgunaan dilarang.")
+    if st.button("Saya Setuju"):
+        st.session_state.accepted_terms = True
+        safe_rerun()
+    st.stop()
+
+# If the user isn't authenticated yet, show a small hint and stop further rendering until they login.
+if not st.session_state.authenticated:
+    st.title("🔒 Akses Diperlukan")
+    st.info("Masuk dengan kode akses di sidebar untuk melanjutkan.")
+    st.stop()
 
 st.title("🌈 Buku Ajaib Sahabat Pintar")
 st.markdown(f'<p class="star-counter">⭐ Bintang Saya: {st.session_state.stars}</p>', unsafe_allow_html=True)
@@ -82,6 +134,31 @@ def transform_audio(audio_bytes, char_type):
         new_rate = int(sound.frame_rate * 0.8)
         sound = sound._spawn(sound.raw_data, overrides={'frame_rate': new_rate}).set_frame_rate(44100)
     return sound
+
+
+# --- CONTENT FILTERING / UTILITY HELPERS ---
+# A small list of banned words (expand as needed). We use word-boundary matching.
+BAD_WORDS = [
+    # English
+    "stupid","idiot","hate","kill","dumb","ugly","fool","jerk","trash","nonsense",
+    "loser","shut up","die","worthless","moron","crazy","insane","evil","nasty","gross",
+    # Indonesian
+    "bodoh","tolol","goblok","jelek","buruk","benci","jahat","bangsat","brengsek","anjing",
+    "babi","setan","iblis","gila","hina","malas","pembohong","penipu","penjahat","sampah"
+]
+
+_bad_pattern = re.compile(r"\b(" + r"|".join([re.escape(w) for w in BAD_WORDS]) + r")\b", flags=re.IGNORECASE)
+
+def contains_bad_words(text: str) -> bool:
+    if not text:
+        return False
+    return bool(_bad_pattern.search(text))
+
+def clean_text(text: str) -> str:
+    # Replace any bad-word matches with a neutral placeholder
+    if not text:
+        return text
+    return _bad_pattern.sub("🌈", text)
 
 # --- PDF & CONTENT ---
 uploaded_file = st.file_uploader("📂 Buka Buku PDF Kamu:", type="pdf")
@@ -129,15 +206,26 @@ if uploaded_file:
 
     # Text Splitting Logic
     raw_text = reader.pages[st.session_state.page].extract_text() or ""
+    # Block the PDF page if it contains banned/offensive words
+    if contains_bad_words(raw_text):
+        st.error("❌ Dokumen ini berisi konten yang tidak cocok untuk anak-anak dan tidak dapat diproses.")
+        st.stop()
+
     sentences = re.split(r'(?<=[.!?]) +', raw_text.replace('\n', ' ')) if raw_text else []
 
     st.write(f"### 📖 Halaman {st.session_state.page + 1}")
 
     for i, line in enumerate(sentences):
         if line.strip():
+            safe_line = clean_text(line)
             with st.container():
-                st.markdown(f'<div class="sentence-card">{line}</div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="sentence-card">{safe_line}</div>', unsafe_allow_html=True)
                 if st.button(f"🔊 Baca Kalimat {i+1}", key=f"s_{i}"):
+                    # Simple per-session rate limiting
+                    USAGE_LIMIT = 50
+                    if st.session_state.usage_count >= USAGE_LIMIT:
+                        st.error("⚠️ Batas penggunaan tercapai untuk sesi ini. Silakan coba lagi nanti atau hubungi admin.")
+                        st.stop()
                     # 1. English Voice (generate TTS bytes)
                     tts_en = gTTS(text=line, lang='en', slow=(speed_val < 1.0))
                     fp_en = BytesIO()
@@ -159,7 +247,7 @@ if uploaded_file:
                     # 2. Translation (if available)
                     if translator_available and translator is not None:
                         try:
-                            translated = translator.translate(line, src='en', dest='id').text
+                            translated = translator.translate(safe_line, src='en', dest='id').text
                             st.success(f"🇮🇩 Artinya: {translated}")
                         except Exception:
                             st.info("Terjemahan saat ini gagal. Coba lagi nanti.")
@@ -167,6 +255,8 @@ if uploaded_file:
                         st.info("Terjemahan tidak tersedia pada runtime ini.")
                     # Reward for playing this sentence
                     st.session_state.stars += 1
+                    # Count this usage
+                    st.session_state.usage_count += 1
                     if st.session_state.stars % 10 == 0:
                         st.balloons()
 
@@ -219,8 +309,12 @@ if uploaded_file:
     with c1:
         if st.button("⬅️ Mundur") and st.session_state.page > 0:
             st.session_state.page -= 1
-            st.rerun()
+            safe_rerun()
     with c2:
         if st.button("Maju ➡️") and st.session_state.page < total_pages - 1:
             st.session_state.page += 1
-            st.rerun()
+            safe_rerun()
+
+# --- FOOTER / DISCLAIMER ---
+st.markdown("---")
+st.caption("© 2026 Buku Ajaib | For educational use only. Misuse or commercial use is prohibited.")
